@@ -202,6 +202,59 @@ def abrir_extrato_aluno(driver, matricula_id: str, oferta_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Passo 2b: dados do cadastro (listas <dt>rótulo</dt><dd>valor</dd>)
+# ---------------------------------------------------------------------------
+# rótulo exato do <dt> (sem acento/maiúsculas) -> campo do resultado
+ROTULOS_DT_CADASTRO = {
+    "nome": "Nome",
+    "cpf": "CPF",
+    "telefone celular": "Telefone",
+}
+
+
+def _normalizar_rotulo(texto: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", t).strip().strip(":").strip().lower()
+
+
+def ler_dados_cadastro(driver, timeout: int = config.TIMEOUT_PADRAO) -> Dict[str, str]:
+    """Lê Nome, CPF e Telefone Celular dos pares <dt>/<dd> da página do
+    aluno. Ex.: <dt>Telefone Celular</dt><dd class="js-format-cel">(11)99237-1278</dd>.
+    Usa o rótulo exato, então 'Nome da Mãe' ou 'Telefone Residencial' não
+    entram no lugar errado. Retorna só os campos encontrados."""
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "dl dt, dt"))
+        )
+    except TimeoutException:
+        return {}
+
+    try:
+        pares = driver.execute_script(
+            """
+            const out = [];
+            document.querySelectorAll('dt').forEach(dt => {
+                let dd = dt.nextElementSibling;
+                while (dd && dd.tagName !== 'DD' && dd.tagName !== 'DT') dd = dd.nextElementSibling;
+                if (dd && dd.tagName === 'DD') out.push([dt.textContent, dd.textContent]);
+            });
+            return out;
+            """
+        ) or []
+    except WebDriverException:
+        return {}
+
+    dados: Dict[str, str] = {}
+    for rotulo, valor in pares:
+        campo = ROTULOS_DT_CADASTRO.get(_normalizar_rotulo(rotulo))
+        valor = re.sub(r"\s+", " ", valor or "").strip()
+        if campo and valor and campo not in dados:  # vale o primeiro da página
+            dados[campo] = valor
+    return dados
+
+
+# ---------------------------------------------------------------------------
 # Passo 3: extrair dados pessoais
 # ---------------------------------------------------------------------------
 def extrair_dados_pessoais(driver) -> Dict[str, str]:
@@ -487,8 +540,20 @@ def processar_cpf(driver, cpf: str) -> List[Dict]:
     (uma por parcela relevante) prontas pra gravação na planilha de saída.
     Levanta ItemNaoEncontradoError se o CPF não for localizado."""
     resultado = buscar_aluno_por_cpf(driver, cpf)
+    # Página do aluno (matricula/show): Nome, CPF e Telefone Celular
+    try:
+        WebDriverWait(driver, config.TIMEOUT_PADRAO).until(EC.url_contains("matricula/show"))
+    except TimeoutException:
+        pass
+    dados_cadastro = ler_dados_cadastro(driver)
     abrir_extrato_aluno(driver, resultado["matricula_id"], resultado["oferta_id"])
     dados_pessoais = extrair_dados_pessoais(driver)
+    # o extrato também pode exibir os mesmos <dt>/<dd>
+    for campo, valor in ler_dados_cadastro(driver, timeout=2).items():
+        dados_cadastro.setdefault(campo, valor)
+    # Nome, CPF e Telefone Celular do cadastro têm prioridade sobre o texto
+    # solto da página
+    dados_pessoais.update(dados_cadastro)
 
     parcelas = coletar_todas_parcelas(driver, resultado["matricula_id"])
     parcelas_para_link = selecionar_parcelas_para_link(parcelas)
