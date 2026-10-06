@@ -30,6 +30,21 @@ credenciais salvas (ver seção abaixo).
 3. Pronto — o `.exe` assinado passa a ser reconhecido como confiável pelo
    Windows (sem o alerta padrão de "editor desconhecido/SmartScreen").
 
+## Chrome e driver (ChromeDriver)
+
+O app usa o **Selenium Manager** (incluso no Selenium) para baixar o
+ChromeDriver compatível com o Chrome instalado. **Não usa a pasta `.wdm`**
+(webdriver-manager).
+
+- O driver fica em cache em `%USERPROFILE%\.cache\selenium` e é baixado de
+  novo sozinho quando o Chrome atualiza.
+- Libere o acesso HTTPS a `googlechromelabs.github.io` e
+  `storage.googleapis.com`; sem isso o Chrome não abre na primeira execução
+  ou após uma atualização do Chrome.
+- Erro "session not created / This version of ChromeDriver only supports
+  Chrome version X": atualize o Chrome, feche o app, apague
+  `%USERPROFILE%\.cache\selenium` e abra de novo.
+
 ## Dados gravados localmente
 
 - Perfis do Chrome (sessão de login): `%LOCALAPPDATA%\CapturaMensalidadePosGraduacao\PerfisChrome\`
