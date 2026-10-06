@@ -49,8 +49,8 @@ ARQ_ESTATISTICAS = os.path.join(DIR_LOGS, "log_processamento.json")
 # ---------------------------------------------------------------------------
 # Contato de suporte (ajuste para os dados reais da sua equipe)
 # ---------------------------------------------------------------------------
-SUPORTE_TELEFONE = "(11) 0000-0000"
-SUPORTE_EMAIL = "suporte@empresa.com.br"
+SUPORTE_TELEFONE = "(11) 94727-8128"
+SUPORTE_EMAIL = "samueldayvid5@icloud.com"
 
 for _d in (DIR_PERFIS_CHROME, DIR_DADOS_APP, DIR_SAIDA, DIR_LOGS, DIR_SCREENSHOTS, DIR_ASSETS):
     os.makedirs(_d, exist_ok=True)

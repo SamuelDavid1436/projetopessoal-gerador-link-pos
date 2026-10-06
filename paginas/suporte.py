@@ -84,8 +84,16 @@ class PaginaSuporte(ctk.CTkFrame):
         ).pack(anchor="w", padx=20, pady=16)
 
     def _abrir_manual(self):
-        caminho = os.path.join(config.DIR_ASSETS, "manual.pdf")
-        if not os.path.exists(caminho):
+        # No .exe (PyInstaller, arquivo único) os assets ficam embutidos e são
+        # extraídos em sys._MEIPASS; rodando pelo código-fonte, em ./assets.
+        candidatos = []
+        if getattr(sys, "_MEIPASS", None):
+            candidatos.append(os.path.join(sys._MEIPASS, "assets", "manual.pdf"))
+        candidatos.append(os.path.join(config.DIR_ASSETS, "manual.pdf"))
+        caminho = next((c for c in candidatos if os.path.exists(c)), None)
+        if caminho is None:
+            import tkinter.messagebox as messagebox
+            messagebox.showwarning("Manual não encontrado", "O arquivo do manual não foi encontrado junto do programa.")
             return
         if sys.platform == "win32":
             os.startfile(caminho)
