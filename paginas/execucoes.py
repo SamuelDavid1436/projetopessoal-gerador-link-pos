@@ -2,9 +2,11 @@
 """paginas/execucoes.py — 'Importe a base de CPF's, escolha os perfis e
 inicie a captura.' Layout fiel ao projeto de referência."""
 
+import logging
 import os
 import sys
 import threading
+import tkinter.messagebox as messagebox
 import subprocess
 import tkinter.filedialog as filedialog
 import customtkinter as ctk
@@ -14,6 +16,9 @@ import config
 import data_io
 import runner as runner_mod
 import estatisticas as estatisticas_mod
+
+
+logger = logging.getLogger("execucoes")
 
 
 class PaginaExecucoes(ctk.CTkFrame):
@@ -122,16 +127,36 @@ class PaginaExecucoes(ctk.CTkFrame):
             self.rotulo_arquivo.configure(text=f"  {os.path.basename(caminho)}")
 
     def _iniciar_execucao(self):
+        if self.app.runner_ativo is not None:
+            messagebox.showinfo("Execução em andamento", "Já existe uma execução rodando. Aguarde ou clique em Parar.")
+            return
         if not self.caminho_base_selecionada:
+            messagebox.showwarning("Base não selecionada", "Clique em 'Importar base...' e escolha o arquivo com os CPFs.")
             return
         perfis_selecionados = [
             self.app.gerenciador_perfis.obter(pid) for pid, var in self.checkboxes_perfis.items() if var.get()
         ]
         if not perfis_selecionados:
+            messagebox.showwarning("Nenhum perfil marcado", "Marque pelo menos um perfil antes de clicar em Importar.")
             return
 
-        df = data_io.ler_base_entrada(self.caminho_base_selecionada)
+        try:
+            df = data_io.ler_base_entrada(self.caminho_base_selecionada)
+        except Exception as e:  # noqa: BLE001 - mostra o motivo pro usuário
+            logger.exception("Falha ao ler a base %s", self.caminho_base_selecionada)
+            messagebox.showerror("Erro ao ler a base", f"Não foi possível ler o arquivo:\n{e}")
+            return
         cpfs = df["CPF"].tolist()
+        if not cpfs:
+            messagebox.showwarning(
+                "Nenhum CPF encontrado",
+                "Nenhum CPF válido (11 dígitos) foi encontrado na primeira coluna da base.",
+            )
+            return
+        logger.info(
+            "Iniciando execução: %s CPF(s), perfis: %s",
+            len(cpfs), ", ".join(p.apelido for p in perfis_selecionados),
+        )
         pasta_saida = data_io.criar_pasta_saida()
         exec_id = self.app.historico.iniciar_execucao(pasta_saida, len(cpfs), [p.apelido for p in perfis_selecionados])
 
@@ -153,6 +178,14 @@ class PaginaExecucoes(ctk.CTkFrame):
             pagina_inicio.botao_parar.configure(state="normal")
 
         def worker():
+            try:
+                _executar_e_gravar()
+            except Exception:  # noqa: BLE001 - nunca deixa a tela travada
+                logger.exception("Falha inesperada durante a execução.")
+                self.app.runner_ativo = None
+                self.after(0, self._finalizar_execucao_ui)
+
+        def _executar_e_gravar():
             resultados = self.app.runner_ativo.executar()
             saidas = data_io.gravar_saidas_execucao(pasta_saida, resultados)
             data_io.gerar_base_reprocessamento(pasta_saida, saidas["linhas_largas"])

@@ -32,6 +32,9 @@ logger = logging.getLogger("app_gui")
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
+        # Erros em cliques de botão iam só pro console (invisível no .exe);
+        # agora aparecem na aba Logs.
+        self.report_callback_exception = self._registrar_erro_callback
 
         estilo.aplicar_tema_customtkinter()
 
@@ -170,6 +173,9 @@ class App(ctk.CTk):
                            text_color=estilo.TEXTO_PRIMARIO if n == nome else "#FFFFFF")
 
     # ------------------------------------------------------------------
+    def _registrar_erro_callback(self, tipo, valor, tb):
+        logger.error("Erro inesperado na interface: %s", valor, exc_info=(tipo, valor, tb))
+
     def _checar_recuperacao_pendente(self):
         if self.log_recuperacao.existe_pendente():
             estado = self.log_recuperacao.carregar()

@@ -83,6 +83,12 @@ class Runner:
 
     # ------------------------------------------------------------------
     def _worker(self, perfil: perfis_mod.Perfil):
+        try:
+            self._worker_interno(perfil)
+        except Exception:  # noqa: BLE001 - erro inesperado não pode sumir em silêncio
+            logger.exception("Perfil %s: erro inesperado no processamento.", perfil.apelido)
+
+    def _worker_interno(self, perfil: perfis_mod.Perfil):
         if browser_manager.perfil_tem_navegador_aberto(perfil.id):
             logger.error(
                 "Perfil %s tem uma janela de login manual aberta — pulando pra evitar "
@@ -91,12 +97,18 @@ class Runner:
             )
             return
 
+        logger.info("Perfil %s: abrindo o Chrome...", perfil.apelido)
         nav = browser_manager.NavegadorPerfil(perfil)
         try:
             driver = nav.abrir()
-        except WebDriverException as e:
-            logger.error("Falha ao abrir navegador do perfil %s: %s", perfil.apelido, e)
+        except Exception as e:  # noqa: BLE001 - qualquer falha ao abrir vai pro log
+            logger.error(
+                "Falha ao abrir o Chrome do perfil %s: %s. Feche todas as janelas do Chrome "
+                "abertas pelo programa e tente de novo; confira se o Chrome está atualizado.",
+                perfil.apelido, e,
+            )
             return
+        logger.info("Perfil %s: Chrome aberto, verificando login...", perfil.apelido)
 
         # Nunca tenta buscar CPF sem login confirmado antes — evita uma
         # cascata de erros logo no primeiro item se a sessão tiver caído.
