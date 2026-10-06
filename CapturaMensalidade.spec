@@ -28,6 +28,7 @@ a = Analysis(
         # PyInstaller deixa módulos de fora do .exe
         *collect_submodules('selenium'),
         'selenium',
+        'limpeza',
         'selenium.webdriver',
         'selenium.webdriver.chrome.service',
         'selenium.webdriver.common.by',
