@@ -42,11 +42,6 @@ class PaginaInicio(ctk.CTkFrame):
             width=100, command=self._parar_execucao, state="disabled",
         )
         self.botao_parar.pack(side="left", padx=(0, 8))
-        self.botao_zerar = ctk.CTkButton(
-            bloco_botoes, text="↻  Zerar painel", fg_color=estilo.FUNDO_SECUNDARIO, hover_color=estilo.BORDA,
-            text_color=estilo.TEXTO_PRIMARIO, width=130, command=self._zerar_painel,
-        )
-        self.botao_zerar.pack(side="left", padx=(0, 8))
         ctk.CTkButton(
             bloco_botoes, text="+  Nova Execução", fg_color=estilo.DOURADO, hover_color=estilo.DOURADO_HOVER,
             text_color=estilo.TEXTO_PRIMARIO, width=150,
@@ -238,10 +233,6 @@ class PaginaInicio(ctk.CTkFrame):
             subprocess.Popen(["open", caminho])
         else:
             subprocess.Popen(["xdg-open", caminho])
-
-    def _zerar_painel(self):
-        import limpeza
-        limpeza.zerar_painel_com_confirmacao(self.app)
 
     def _parar_execucao(self):
         if self.app.runner_ativo:
