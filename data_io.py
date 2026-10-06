@@ -72,14 +72,25 @@ def ler_base_entrada(caminho: str) -> pd.DataFrame:
         )
 
     if not tem_cab:
-        # renomeia colunas genericamente e assume a primeira como CPF
+        # renomeia colunas genericamente e assume a primeira como CPF e a
+        # segunda (se houver) como telefone
         df.columns = [f"col_{i}" for i in range(len(df.columns))]
         df = df.rename(columns={"col_0": "CPF"})
+        if "col_1" in df.columns:
+            df = df.rename(columns={"col_1": "Telefone"})
     else:
         # normaliza nome da coluna de CPF, tolerando variações
         for col in df.columns:
             if re.sub(r"[^A-Za-z]", "", str(col)).upper() == "CPF":
                 df = df.rename(columns={col: "CPF"})
+                break
+        # coluna de telefone (opcional): Telefone, Celular, Fone ou WhatsApp
+        for col in df.columns:
+            if col == "CPF":
+                continue
+            nome = re.sub(r"[^A-Za-z]", "", str(col)).upper()
+            if nome in config.NOMES_COLUNA_TELEFONE:
+                df = df.rename(columns={col: "Telefone"})
                 break
 
     if "CPF" not in df.columns:
@@ -87,7 +98,35 @@ def ler_base_entrada(caminho: str) -> pd.DataFrame:
 
     df["CPF"] = df["CPF"].astype(str).str.replace(r"\D", "", regex=True).str.zfill(11)
     df = df[df["CPF"].str.len() == 11].reset_index(drop=True)
+
+    if "Telefone" in df.columns:
+        df["Telefone"] = df["Telefone"].fillna("").astype(str).str.strip()
+        df.loc[df["Telefone"].str.lower() == "nan", "Telefone"] = ""
+    else:
+        df["Telefone"] = ""
     return df
+
+
+def mapa_telefones(df: pd.DataFrame) -> Dict[str, str]:
+    """CPF -> telefone informado na base (só os que vieram preenchidos).
+    Se o CPF se repetir, vale o primeiro telefone preenchido."""
+    mapa: Dict[str, str] = {}
+    for cpf, tel in zip(df["CPF"], df.get("Telefone", [""] * len(df))):
+        if tel and cpf not in mapa:
+            mapa[cpf] = tel
+    return mapa
+
+
+def formatar_telefone_disparo(telefone: str) -> str:
+    """Formata no padrão de disparo: 55 + DDD + número, só dígitos.
+    Retorna '' se o número não tiver tamanho de telefone brasileiro."""
+    digitos = re.sub(r"\D", "", str(telefone or ""))
+    digitos = digitos.lstrip("0")
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        return digitos
+    if len(digitos) in (10, 11):
+        return "55" + digitos
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -103,11 +142,15 @@ def criar_pasta_saida() -> str:
 
 
 def gravar_resultados(
-    pasta_saida: str, linhas: List[Dict], nome_base: str = "resultado", colunas: List[str] = None
+    pasta_saida: str, linhas: List[Dict], nome_base: str = "resultado", colunas: List[str] = None,
+    rotulos: Dict[str, str] = None,
 ) -> Dict[str, str]:
     """Grava CSV (';', utf-8-sig) + XLSX. Se `colunas` não for informado,
-    usa o conjunto fixo de colunas do formato longo (config.COLUNAS_SAIDA)."""
+    usa o conjunto fixo de colunas do formato longo (config.COLUNAS_SAIDA).
+    `rotulos` troca o nome interno da coluna pelo texto do cabeçalho."""
     df = pd.DataFrame(linhas, columns=colunas or config.COLUNAS_SAIDA)
+    if rotulos:
+        df = df.rename(columns=rotulos)
 
     caminho_csv = os.path.join(pasta_saida, f"{nome_base}.csv")
     caminho_xlsx = os.path.join(pasta_saida, f"{nome_base}.xlsx")
@@ -132,17 +175,26 @@ def gerar_base_reprocessamento(pasta_saida: str, linhas: List[Dict]) -> str:
 # Pivô: formato "longo" (uma linha por parcela) -> "largo" (uma linha por
 # CPF, com colunas FIXAS por mês do calendário: Junho a Dezembro/2026)
 # ---------------------------------------------------------------------------
+def _nome_mes(mes_ano: str) -> "tuple[str, int]":
+    """'OUTUBRO/2026' -> ('Outubro', 2026). Retorna ('', 0) se inválido."""
+    mes_nome, _, ano_str = (mes_ano or "").strip().partition("/")
+    try:
+        return mes_nome.strip().capitalize(), int(ano_str.strip())
+    except ValueError:
+        return "", 0
+
+
 def pivotar_para_wide(linhas: List[Dict]) -> "tuple[List[Dict], List[str]]":
     """Transforma o resultado 'longo' (uma linha por parcela) em 'largo'
     (uma linha por aluno/CPF), com colunas FIXAS por mês do calendário —
     sempre 'Junho', 'Julho', ... 'Dezembro' (config.MESES_SAIDA_ORDENADOS,
-    ano config.ANO_SAIDA), na mesma posição em toda linha, pra dar pra
-    comparar entre alunos diretamente.
+    ano config.ANO_SAIDA), na mesma posição em toda linha.
 
-    Cada mês vira 3 colunas: '{Mes} - Situação' (Com/Sem mensalidade),
-    '{Mes} - Valor Pago' e '{Mes} - Link Pagamento'. Competências fora da
-    janela Junho-Dezembro do ano configurado são ignoradas — não entram no
-    arquivo de saída largo (mas continuam no detalhado)."""
+    Ordem das colunas: Nome, CPF, Telefone, Situação -> para cada mês
+    '{Mês} - Situação Mensalidade' (situação da parcela na plataforma, ou
+    'Sem mensalidade'), '{Mês} - Valor Pago', '{Mês} - Vencimento' e
+    '{Mês} - Link Pagamento' -> Curso, Plano, E-mail, Status, Observação.
+    Competências fora da janela são ignoradas aqui (ficam no detalhado)."""
     grupos: Dict[str, Dict] = {}
     ordem_cpfs: List[str] = []
 
@@ -150,51 +202,44 @@ def pivotar_para_wide(linhas: List[Dict]) -> "tuple[List[Dict], List[str]]":
         cpf = linha.get("CPF", "")
         if cpf not in grupos:
             grupos[cpf] = {
-                "base": {
-                    "CPF": cpf,
-                    "Nome": linha.get("Nome", ""),
-                    "Situacao_Matricula": linha.get("Situacao_Matricula", ""),
-                    "Curso": linha.get("Curso", ""),
-                    "Plano": linha.get("Plano", ""),
-                    "Email": linha.get("Email", ""),
-                    "Status_Processamento": linha.get("Status_Processamento", ""),
-                    "Observacao": linha.get("Observacao", ""),
-                },
-                "por_mes": {},  # nome do mês -> {"valor_pago":..., "link_pagamento":...}
+                "base": {col: linha.get(col, "") for col in config.COLUNAS_BASE_SAIDA_LARGA},
+                "por_mes": {},
             }
+            grupos[cpf]["base"]["CPF"] = cpf
             ordem_cpfs.append(cpf)
         else:
+            base = grupos[cpf]["base"]
+            if not base.get("Telefone") and linha.get("Telefone"):
+                base["Telefone"] = linha.get("Telefone")
             # se qualquer linha desse CPF for erro, o aluno inteiro fica marcado como erro
             if linha.get("Status_Processamento") == "Erro":
-                base = grupos[cpf]["base"]
                 base["Status_Processamento"] = "Erro"
                 nova_obs = (linha.get("Observacao") or "").strip()
                 if nova_obs and nova_obs not in base.get("Observacao", ""):
                     base["Observacao"] = (base.get("Observacao", "") + " | " + nova_obs).strip(" |")
 
-        mes_ano = (linha.get("Mes_Ano") or "").strip()
-        if not mes_ano or "/" not in mes_ano:
+        mes_nome, ano_int = _nome_mes(linha.get("Mes_Ano"))
+        if not mes_nome:
             continue  # linha sem competência (ex.: erro, ou aviso sem parcela)
-
-        mes_nome, _, ano_str = mes_ano.partition("/")
-        mes_nome_cap = mes_nome.strip().capitalize()
-        try:
-            ano_int = int(ano_str.strip())
-        except ValueError:
+        if ano_int != config.ANO_SAIDA or mes_nome not in config.MESES_SAIDA_ORDENADOS:
             continue
 
-        # só entra na janela fixa Junho-Dezembro do ano configurado
-        if ano_int != config.ANO_SAIDA or mes_nome_cap not in config.MESES_SAIDA_ORDENADOS:
-            continue
-
-        grupos[cpf]["por_mes"][mes_nome_cap] = {
+        grupos[cpf]["por_mes"][mes_nome] = {
+            "situacao": (linha.get("Situacao_Parcela") or "").strip() or config.TEXTO_COM_MENSALIDADE,
             "valor_pago": linha.get("Valor_Pago", ""),
+            "vencimento": linha.get("Vencimento", ""),
             "link_pagamento": linha.get("Link_Pagamento", ""),
         }
 
+    sufixos = [
+        ("situacao", config.SUFIXO_MES_SITUACAO),
+        ("valor_pago", config.SUFIXO_MES_VALOR),
+        ("vencimento", config.SUFIXO_MES_VENCIMENTO),
+        ("link_pagamento", config.SUFIXO_MES_LINK),
+    ]
     colunas_dinamicas: List[str] = []
     for mes in config.MESES_SAIDA_ORDENADOS:
-        colunas_dinamicas += [f"{mes} - Situação", f"{mes} - Valor Pago", f"{mes} - Link Pagamento"]
+        colunas_dinamicas += [f"{mes} - {sufixo}" for _, sufixo in sufixos]
 
     linhas_largas = []
     for cpf in ordem_cpfs:
@@ -202,15 +247,91 @@ def pivotar_para_wide(linhas: List[Dict]) -> "tuple[List[Dict], List[str]]":
         linha_larga = dict(grupo["base"])
         for mes in config.MESES_SAIDA_ORDENADOS:
             dados_mes = grupo["por_mes"].get(mes)
-            if dados_mes:
-                linha_larga[f"{mes} - Situação"] = config.TEXTO_COM_MENSALIDADE
-                linha_larga[f"{mes} - Valor Pago"] = dados_mes["valor_pago"]
-                linha_larga[f"{mes} - Link Pagamento"] = dados_mes["link_pagamento"]
-            else:
-                linha_larga[f"{mes} - Situação"] = config.TEXTO_SEM_MENSALIDADE
-                linha_larga[f"{mes} - Valor Pago"] = ""
-                linha_larga[f"{mes} - Link Pagamento"] = ""
+            for chave, sufixo in sufixos:
+                if dados_mes:
+                    linha_larga[f"{mes} - {sufixo}"] = dados_mes[chave]
+                else:
+                    linha_larga[f"{mes} - {sufixo}"] = (
+                        config.TEXTO_SEM_MENSALIDADE if chave == "situacao" else ""
+                    )
         linhas_largas.append(linha_larga)
 
-    colunas = config.COLUNAS_BASE_SAIDA_LARGA + colunas_dinamicas
+    colunas = config.COLUNAS_INICIO_SAIDA_LARGA + colunas_dinamicas + config.COLUNAS_FIM_SAIDA_LARGA
     return linhas_largas, colunas
+
+
+# ---------------------------------------------------------------------------
+# Base de disparo: uma linha por aluno com link de pagamento gerado
+# ---------------------------------------------------------------------------
+def _prioridade_disparo(linha: Dict, hoje: datetime) -> "tuple":
+    """Quanto menor, melhor. Prioriza a parcela do mês atual; sem link no
+    mês atual, a do mês mais próximo (o anterior vem antes do seguinte)."""
+    mes_nome, ano = _nome_mes(linha.get("Mes_Ano"))
+    numero = config.MESES_PT.get(mes_nome.upper(), 0)
+    distancia = (ano * 12 + numero) - (hoje.year * 12 + hoje.month)
+    return (abs(distancia), 0 if distancia <= 0 else 1)
+
+
+def montar_base_disparo(linhas: List[Dict], hoje: datetime = None) -> "tuple[List[Dict], List[str]]":
+    """Uma linha por aluno, com o link da parcela do mês atual (ou, se o mês
+    atual não tiver link, do mês mais próximo — o anterior antes do
+    seguinte). Alunos sem nenhum link gerado ficam de fora.
+    Colunas: CPF, Nome, Telefone (55 + DDD + número), MÊS, Vencimento e
+    '{Mês} - Link Pagamento' (ou só 'Link Pagamento' se a base tiver
+    alunos com meses diferentes)."""
+    hoje = hoje or datetime.now()
+    escolhidas: Dict[str, Dict] = {}
+    telefones: Dict[str, str] = {}
+    ordem: List[str] = []
+
+    for linha in linhas:
+        cpf = linha.get("CPF", "")
+        if cpf not in ordem:
+            ordem.append(cpf)
+        if linha.get("Telefone") and not telefones.get(cpf):
+            telefones[cpf] = linha["Telefone"]
+        if not (linha.get("Link_Pagamento") or "").strip():
+            continue
+        atual = escolhidas.get(cpf)
+        if atual is None or _prioridade_disparo(linha, hoje) < _prioridade_disparo(atual, hoje):
+            escolhidas[cpf] = linha
+
+    linhas_disparo = []
+    for cpf in ordem:
+        linha = escolhidas.get(cpf)
+        if not linha:
+            continue
+        mes_nome, _ = _nome_mes(linha.get("Mes_Ano"))
+        linhas_disparo.append({
+            "CPF": cpf,
+            "Nome": linha.get("Nome", ""),
+            "Telefone": formatar_telefone_disparo(telefones.get(cpf, "")),
+            config.COLUNA_DISPARO_MES: mes_nome,
+            "Vencimento": linha.get("Vencimento", ""),
+            "_link": linha.get("Link_Pagamento", "").strip(),
+        })
+
+    meses = {l[config.COLUNA_DISPARO_MES] for l in linhas_disparo}
+    coluna_link = (
+        f"{meses.pop()} - {config.SUFIXO_MES_LINK}" if len(meses) == 1
+        else config.COLUNA_DISPARO_LINK_GENERICA
+    )
+    for l in linhas_disparo:
+        l[coluna_link] = l.pop("_link")
+
+    colunas = ["CPF", "Nome", "Telefone", config.COLUNA_DISPARO_MES, "Vencimento", coluna_link]
+    return linhas_disparo, colunas
+
+
+def gravar_saidas_execucao(pasta_saida: str, linhas: List[Dict], sufixo: str = "") -> Dict[str, str]:
+    """Grava todos os arquivos de uma execução (CSV + XLSX cada):
+    resultado, resultado_detalhado e base_disparo. `sufixo` é usado na
+    recuperação ('_recuperado')."""
+    linhas_largas, colunas_largas = pivotar_para_wide(linhas)
+    gravar_resultados(pasta_saida, linhas_largas, nome_base=f"resultado{sufixo}",
+                      colunas=colunas_largas, rotulos=config.ROTULOS_COLUNAS)
+    gravar_resultados(pasta_saida, linhas, nome_base=f"resultado{sufixo}_detalhado")
+    linhas_disparo, colunas_disparo = montar_base_disparo(linhas)
+    gravar_resultados(pasta_saida, linhas_disparo, nome_base=f"base_disparo{sufixo}",
+                      colunas=colunas_disparo, rotulos=config.ROTULOS_COLUNAS)
+    return {"linhas_largas": linhas_largas}

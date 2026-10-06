@@ -131,8 +131,10 @@ COLUNAS_SAIDA = [
     "Curso",
     "Plano",
     "Email",
+    "Telefone",
     "Mes_Ano",
     "Valor_Pago",
+    "Vencimento",
     "Situacao_Parcela",
     "Link_Pagamento",
     "Status_Processamento",
@@ -141,16 +143,46 @@ COLUNAS_SAIDA = [
 
 # Formato "largo" (uma linha por CPF, com colunas fixas por mês do
 # calendário) — é o arquivo de saída principal (resultado.csv/.xlsx).
-COLUNAS_BASE_SAIDA_LARGA = [
-    "CPF",
+# Ordem: identificação do aluno -> blocos por mês -> colunas de controle.
+COLUNAS_INICIO_SAIDA_LARGA = [
     "Nome",
+    "CPF",
+    "Telefone",
     "Situacao_Matricula",
+]
+COLUNAS_FIM_SAIDA_LARGA = [
     "Curso",
     "Plano",
     "Email",
     "Status_Processamento",
     "Observacao",
 ]
+COLUNAS_BASE_SAIDA_LARGA = COLUNAS_INICIO_SAIDA_LARGA + COLUNAS_FIM_SAIDA_LARGA
+
+# Rótulos exibidos no cabeçalho dos arquivos resultado e base_disparo
+# (internamente o código continua usando os nomes da esquerda).
+ROTULOS_COLUNAS = {
+    "Situacao_Matricula": "Situação",
+    "Email": "E-mail",
+    "Status_Processamento": "Status do Processamento",
+    "Observacao": "Observação",
+}
+
+# Sufixos das 4 colunas de cada mês no resultado: "{Mês} - <sufixo>"
+SUFIXO_MES_SITUACAO = "Situação Mensalidade"
+SUFIXO_MES_VALOR = "Valor Pago"
+SUFIXO_MES_VENCIMENTO = "Vencimento"
+SUFIXO_MES_LINK = "Link Pagamento"
+
+# Base de disparo: uma linha por aluno com link gerado
+COLUNA_DISPARO_MES = "MÊS"
+COLUNA_DISPARO_LINK_GENERICA = "Link Pagamento"
+
+# Cabeçalhos aceitos para a coluna de telefone na base de entrada
+NOMES_COLUNA_TELEFONE = ["TELEFONE", "CELULAR", "FONE", "WHATSAPP"]
+
+# Texto do cabeçalho da coluna de vencimento na tabela do extrato
+TEXTO_CABECALHO_VENCIMENTO = "Vencimento"
 
 # Janela fixa de colunas por mês: sempre de Junho a Dezembro do ano
 # definido, na mesma ordem/posição pra todo mundo — dá pra comparar entre

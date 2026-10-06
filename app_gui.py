@@ -202,11 +202,7 @@ class App(ctk.CTk):
             linhas = []
             for r in estado.get("resultados_parciais", []):
                 linhas.extend(r.get("linhas", []))
-            linhas_largas, colunas_largas = data_io.pivotar_para_wide(linhas)
-            data_io.gravar_resultados(
-                estado["pasta_saida"], linhas_largas, nome_base="resultado_recuperado", colunas=colunas_largas
-            )
-            data_io.gravar_resultados(estado["pasta_saida"], linhas, nome_base="resultado_recuperado_detalhado")
+            data_io.gravar_saidas_execucao(estado["pasta_saida"], linhas, sufixo="_recuperado")
             self.estatisticas.registrar_capturados(len(linhas))
             self.log_recuperacao.limpar()
             janela.destroy()

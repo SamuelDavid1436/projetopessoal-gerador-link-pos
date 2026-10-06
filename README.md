@@ -92,32 +92,39 @@ uma janela visível, e "Limpar perfil" para resetar tudo daquele perfil
 
 ## Base de entrada
 
-CSV ou Excel com uma coluna de **CPF** (com ou sem cabeçalho). O separador
-do CSV é detectado automaticamente (não usamos `sep=None` do pandas, que
-trunca valores numéricos em arquivos sem cabeçalho).
+CSV ou Excel com o **CPF** na primeira coluna (com ou sem cabeçalho). O
+separador do CSV é detectado automaticamente (não usamos `sep=None` do
+pandas, que trunca valores numéricos em arquivos sem cabeçalho).
+
+Telefone é opcional: coluna com cabeçalho `Telefone`, `Celular`, `Fone` ou
+`WhatsApp`, ou a segunda coluna de uma base sem cabeçalho. O telefone da
+base sempre vale mais que o lido na plataforma.
 
 ## Saída
 
-Cada execução gera sua própria pasta em `saida/AAAA-MM-DD_HH-MM-SS/`, com:
+Cada execução gera sua própria pasta em `saida/AAAA-MM-DD_HH-MM-SS/`.
+Todo arquivo sai em CSV (separador `;`, `utf-8-sig`) e em XLSX:
 
-- **`resultado.csv` / `resultado.xlsx`** (arquivo principal — separador
-  `;`, `utf-8-sig`): **uma linha por CPF**, com colunas fixas por mês do
-  calendário — sempre `Junho` a `Dezembro` de `config.ANO_SAIDA` (2026 por
-  padrão), na mesma posição em toda linha, pra dar pra comparar entre
-  alunos diretamente. Colunas base: CPF, Nome, Situação da Matrícula,
-  Curso, Plano, Email, Status do Processamento, Observação. Pra cada mês
-  da janela: `{Mês} - Situação` ("Com mensalidade" / "Sem mensalidade"),
-  `{Mês} - Valor Pago` e `{Mês} - Link Pagamento`. Competências fora da
-  janela Junho–Dezembro do ano configurado são ignoradas nesse arquivo
-  (ficam registradas no detalhado). Se quiser mudar o intervalo de meses,
-  ajuste `ANO_SAIDA`/`MESES_SAIDA_ORDENADOS` em `config.py`.
-- **`resultado_detalhado.csv` / `resultado_detalhado.xlsx`**: formato
-  longo (uma linha por parcela), útil pra auditoria/depuração. Colunas:
-  CPF, Nome, Situação da Matrícula, Curso, Plano, Email, Mês/Ano, Valor
-  Pago, Situação da Parcela, Link de Pagamento, Status do Processamento,
-  Observação.
-- **`reprocessar_erros.xlsx`**: só os CPFs que deram erro, pronto pra
+- **`resultado`** — uma linha por CPF. Colunas, nesta ordem: `Nome`,
+  `CPF`, `Telefone`, `Situação` (da matrícula); para cada mês de `Junho`
+  a `Dezembro` de `config.ANO_SAIDA`: `{Mês} - Situação Mensalidade`
+  (situação da parcela na plataforma, ou "Sem mensalidade"),
+  `{Mês} - Valor Pago`, `{Mês} - Vencimento` e `{Mês} - Link Pagamento`;
+  por fim `Curso`, `Plano`, `E-mail`, `Status do Processamento` e
+  `Observação`.
+- **`base_disparo`** — uma linha por aluno com link gerado: `CPF`, `Nome`,
+  `Telefone` (55 + DDD + número), `MÊS`, `Vencimento` e
+  `{Mês} - Link Pagamento` (ou só `Link Pagamento` se a base tiver meses
+  diferentes). O link escolhido é o do mês atual; se o mês atual não tiver
+  link, o do mês mais próximo (anterior antes do seguinte). Alunos sem link
+  ficam de fora.
+- **`resultado_detalhado`** — uma linha por parcela (auditoria), com
+  telefone e vencimento.
+- **`reprocessar_erros.xlsx`** — só os CPFs que deram erro, pronto pra
   reimportar.
+
+O vencimento é lido na página do link de pagamento quando o link é gerado;
+se a página não mostrar, vem da coluna "Vencimento" da tabela do extrato.
 
 ## Painel (tela Início)
 

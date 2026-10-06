@@ -143,6 +143,7 @@ class PaginaExecucoes(ctk.CTkFrame):
             exec_id=exec_id,
             callback_inicio_item=self._callback_inicio_item,
             callback_resultado_item=self._callback_resultado_item,
+            telefones=data_io.mapa_telefones(df),
         )
 
         self.botao_importar.configure(state="disabled")
@@ -153,10 +154,8 @@ class PaginaExecucoes(ctk.CTkFrame):
 
         def worker():
             resultados = self.app.runner_ativo.executar()
-            linhas_largas, colunas_largas = data_io.pivotar_para_wide(resultados)
-            data_io.gravar_resultados(pasta_saida, linhas_largas, nome_base="resultado", colunas=colunas_largas)
-            data_io.gravar_resultados(pasta_saida, resultados, nome_base="resultado_detalhado")
-            data_io.gerar_base_reprocessamento(pasta_saida, linhas_largas)
+            saidas = data_io.gravar_saidas_execucao(pasta_saida, resultados)
+            data_io.gerar_base_reprocessamento(pasta_saida, saidas["linhas_largas"])
             self.app.estatisticas.registrar_capturados(len(resultados))
             status_final = "Interrompido" if self.app.runner_ativo.foi_interrompido else "Concluído"
             self.app.historico.finalizar_execucao(exec_id, status=status_final)

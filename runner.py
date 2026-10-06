@@ -45,6 +45,7 @@ class Runner:
         exec_id: str,
         callback_inicio_item: Optional[Callable[[str, str], None]] = None,
         callback_resultado_item: Optional[Callable[[ResultadoItem, str], None]] = None,
+        telefones: Optional[Dict[str, str]] = None,
     ):
         self.perfis_selecionados = perfis_selecionados
         self.fila = queue.Queue()
@@ -56,6 +57,9 @@ class Runner:
         self.exec_id = exec_id
         self.callback_inicio_item = callback_inicio_item
         self.callback_resultado_item = callback_resultado_item
+        # CPF -> telefone informado na base de entrada (tem prioridade sobre
+        # o telefone lido na plataforma)
+        self.telefones = telefones or {}
 
         self.log_recuperacao = recuperacao_mod.LogRecuperacao()
         self.log_recuperacao.iniciar(exec_id, pasta_saida, self.total_itens)
@@ -202,8 +206,10 @@ class Runner:
             "Curso": "",
             "Plano": "",
             "Email": "",
+            "Telefone": "",
             "Mes_Ano": "",
             "Valor_Pago": "",
+            "Vencimento": "",
             "Situacao_Parcela": "",
             "Link_Pagamento": "",
             "Status_Processamento": "Erro",
@@ -212,6 +218,10 @@ class Runner:
 
     # ------------------------------------------------------------------
     def _registrar_resultado(self, resultado: ResultadoItem):
+        telefone_base = (self.telefones.get(resultado.cpf) or "").strip()
+        if telefone_base:
+            for linha in resultado.linhas:
+                linha["Telefone"] = telefone_base
         with self._lock_contadores:
             self.processados += 1
             if resultado.sucesso:

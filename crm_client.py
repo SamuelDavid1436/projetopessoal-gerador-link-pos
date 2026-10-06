@@ -53,6 +53,7 @@ class ParcelaMensalidade:
     ano_mes_ordenavel: str    # "YYYY-MM" pra comparação
     valor_pago: str
     situacao: str
+    vencimento: str = ""      # "dd/mm/aaaa"
     link_pagamento: str = ""
 
 
@@ -206,7 +207,7 @@ def abrir_extrato_aluno(driver, matricula_id: str, oferta_id: str):
 def extrair_dados_pessoais(driver) -> Dict[str, str]:
     """Extrai Nome, Situação, Curso, Plano, CPF e Email do bloco de dados
     pessoais exibido junto ao extrato."""
-    dados = {"Nome": "", "Situacao_Matricula": "", "Curso": "", "Plano": "", "CPF": "", "Email": ""}
+    dados = {"Nome": "", "Situacao_Matricula": "", "Curso": "", "Plano": "", "CPF": "", "Email": "", "Telefone": ""}
 
     try:
         texto_pagina = WebDriverWait(driver, config.TIMEOUT_PADRAO).until(
@@ -222,6 +223,9 @@ def extrair_dados_pessoais(driver) -> Dict[str, str]:
         "Plano": r"Plano:\s*(.+?)(?:\n|$)",
         "CPF": r"CPF:\s*([\d.\-]+)",
         "Email": r"E-?mail:\s*([\w\.\-\+]+@[\w\.\-]+)",
+        # Melhor esforço: só preenche se a página exibir um rótulo de
+        # telefone/celular. O telefone informado na base sempre tem prioridade.
+        "Telefone": r"(?:Celular|Telefone|Fone)[^:\n]{0,20}:\s*(\+?[\d()\s\-]{10,20}\d)",
     }
 
     for campo, padrao in padroes.items():
@@ -266,9 +270,37 @@ def _extrair_id_linha(linha) -> str:
     return ""
 
 
+_REGEX_DATA = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
+
+
+def _normalizar_data(texto: str) -> str:
+    """Devolve a primeira data encontrada no texto como 'dd/mm/aaaa'."""
+    m = _REGEX_DATA.search(texto or "")
+    return f"{m.group(1)}/{m.group(2)}/{m.group(3)}" if m else ""
+
+
+def _indice_coluna_vencimento(driver) -> int:
+    """Descobre, pelo cabeçalho da tabela do extrato, em qual coluna fica o
+    vencimento. Retorna -1 se não encontrar (aí o vencimento vem só da
+    página do link)."""
+    try:
+        cabecalhos = driver.find_elements(By.CSS_SELECTOR, f"{config.SEL_TABELA_EXTRATO} thead th")
+    except WebDriverException:
+        return -1
+    alvo = config.TEXTO_CABECALHO_VENCIMENTO.lower()
+    for i, th in enumerate(cabecalhos):
+        try:
+            if alvo in (th.text or "").strip().lower():
+                return i
+        except StaleElementReferenceException:
+            continue
+    return -1
+
+
 def _extrair_parcelas_da_pagina(driver) -> List[ParcelaMensalidade]:
     parcelas = []
     linhas = driver.find_elements(By.CSS_SELECTOR, config.SEL_LINHAS_TABELA)
+    idx_vencimento = _indice_coluna_vencimento(driver)
 
     for linha in linhas:
         try:
@@ -293,8 +325,11 @@ def _extrair_parcelas_da_pagina(driver) -> List[ParcelaMensalidade]:
             valor_pago = ""
             if len(valor_pago_tds) >= 9:
                 valor_pago = valor_pago_tds[8].text.strip()
+            vencimento = ""
+            if 0 <= idx_vencimento < len(valor_pago_tds):
+                vencimento = _normalizar_data(valor_pago_tds[idx_vencimento].text)
         except (NoSuchElementException, StaleElementReferenceException):
-            situacao, valor_pago = "", ""
+            situacao, valor_pago, vencimento = "", "", ""
 
         parcelas.append(
             ParcelaMensalidade(
@@ -307,6 +342,7 @@ def _extrair_parcelas_da_pagina(driver) -> List[ParcelaMensalidade]:
                 ano_mes_ordenavel=_mes_ano_para_ordenavel(mes, ano),
                 valor_pago=valor_pago,
                 situacao=situacao,
+                vencimento=vencimento,
             )
         )
 
@@ -395,14 +431,28 @@ def selecionar_parcelas_para_link(parcelas: List[ParcelaMensalidade]) -> List[Pa
     ]
 
 
-def gerar_link_pagamento(driver, matricula_id: str, id_linha: str) -> str:
+def _ler_vencimento_pagina_link(driver) -> str:
+    """Na página do link de pagamento, procura a data que vem logo depois
+    do rótulo 'Vencimento'. Retorna '' se não encontrar."""
+    try:
+        texto = driver.find_element(By.TAG_NAME, "body").text
+    except WebDriverException:
+        return ""
+    m = re.search(r"Vencimento[^\d\n]{0,40}(\d{2}/\d{2}/\d{4})", texto, flags=re.IGNORECASE)
+    if not m:
+        # rótulo e valor em linhas separadas
+        m = re.search(r"Vencimento[^\d]{0,60}?(\d{2}/\d{2}/\d{4})", texto, flags=re.IGNORECASE)
+    return m.group(1) if m else ""
+
+
+def gerar_link_pagamento(driver, matricula_id: str, id_linha: str) -> "tuple[str, str]":
     """Navega até a página de detalhe da parcela ('Gerar Link'), aguarda o
-    input do link de pagamento e retorna o valor."""
+    input do link de pagamento e retorna (link, vencimento)."""
     if not id_linha:
         # Guarda de segurança: nunca navegar com ID vazio (evita repetir o
         # bug de URL quebrada .../show/ sem ID, já corrigido na extração).
         logger.warning("id_linha vazio — geração de link pulada para evitar URL inválida.")
-        return ""
+        return "", ""
 
     url_detalhe = f"{config.URL_EXTRATO_BASE.rsplit('/', 1)[0]}/show/{id_linha}"
     driver.get(url_detalhe)
@@ -412,19 +462,21 @@ def gerar_link_pagamento(driver, matricula_id: str, id_linha: str) -> str:
             EC.presence_of_element_located((By.CSS_SELECTOR, config.SEL_INPUT_LINK_PAGAMENTO))
         )
     except TimeoutException:
-        return ""
+        return "", _ler_vencimento_pagina_link(driver)
 
+    link = ""
     for _ in range(3):
         valor = campo_link.get_attribute("value")
         if valor:
-            return valor.strip()
+            link = valor.strip()
+            break
         time.sleep(0.5)
         try:
             campo_link = driver.find_element(By.CSS_SELECTOR, config.SEL_INPUT_LINK_PAGAMENTO)
         except (NoSuchElementException, StaleElementReferenceException):
             break
 
-    return ""
+    return link, _ler_vencimento_pagina_link(driver)
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +497,12 @@ def processar_cpf(driver, cpf: str) -> List[Dict]:
     # instâncias presentes em `parcelas`) — evita comparar por id_linha,
     # o que poderia agrupar erroneamente linhas com ID vazio/repetido.
     for parcela in parcelas_para_link:
-        parcela.link_pagamento = gerar_link_pagamento(driver, resultado["matricula_id"], parcela.id_linha)
+        link, vencimento_link = gerar_link_pagamento(driver, resultado["matricula_id"], parcela.id_linha)
+        parcela.link_pagamento = link
+        # O vencimento mostrado junto do link gerado é o mais confiável;
+        # se a página não mostrar, fica o vencimento lido no extrato.
+        if vencimento_link:
+            parcela.vencimento = vencimento_link
 
     linhas = []
     for parcela in parcelas:
@@ -456,8 +513,10 @@ def processar_cpf(driver, cpf: str) -> List[Dict]:
             "Curso": dados_pessoais.get("Curso", ""),
             "Plano": dados_pessoais.get("Plano", ""),
             "Email": dados_pessoais.get("Email", ""),
+            "Telefone": dados_pessoais.get("Telefone", ""),
             "Mes_Ano": parcela.mes_ano_ref,
             "Valor_Pago": parcela.valor_pago,
+            "Vencimento": parcela.vencimento,
             "Situacao_Parcela": parcela.situacao,
             "Link_Pagamento": parcela.link_pagamento,
             "Status_Processamento": "Sucesso",
@@ -474,8 +533,10 @@ def processar_cpf(driver, cpf: str) -> List[Dict]:
             "Curso": dados_pessoais.get("Curso", ""),
             "Plano": dados_pessoais.get("Plano", ""),
             "Email": dados_pessoais.get("Email", ""),
+            "Telefone": dados_pessoais.get("Telefone", ""),
             "Mes_Ano": "",
             "Valor_Pago": "",
+            "Vencimento": "",
             "Situacao_Parcela": "",
             "Link_Pagamento": "",
             "Status_Processamento": "Sucesso",
