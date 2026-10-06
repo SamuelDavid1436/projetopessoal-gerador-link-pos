@@ -54,3 +54,47 @@ def zerar_tudo(app) -> Dict[str, int]:
         saida["apagados"], prints["apagados"], saida["falhas"] + prints["falhas"],
     )
     return {"pastas_saida": saida["apagados"], "falhas": saida["falhas"] + prints["falhas"]}
+
+
+def zerar_painel_com_confirmacao(app):
+    """Fluxo completo do botão 'Zerar painel': confirma, limpa e atualiza
+    as telas. Usado na tela Início e na seção Zerar painel de Configurações."""
+    import tkinter.messagebox as messagebox
+
+    if app.runner_ativo is not None:
+        messagebox.showwarning("Execução em andamento", "Pare ou aguarde a execução terminar antes de zerar o painel.")
+        return
+    confirmar = messagebox.askyesno(
+        "Zerar painel",
+        "Isso vai apagar:\n\n"
+        "• os números do painel e o histórico de execuções;\n"
+        "• TODAS as pastas de saída (resultado, base_disparo etc.);\n"
+        "• as imagens de erro.\n\n"
+        "Perfis e logins salvos NÃO são apagados.\n\n"
+        "Se precisar dos arquivos gerados, copie-os antes.\n\n"
+        "Deseja continuar?",
+        icon="warning",
+    )
+    if not confirmar:
+        return
+
+    resultado = zerar_tudo(app)
+
+    pagina_execucoes = app.paginas.get("Execuções")
+    if pagina_execucoes:
+        pagina_execucoes.caminho_base_selecionada = None
+        pagina_execucoes.rotulo_arquivo.configure(text="  nenhum arquivo selecionado")
+        pagina_execucoes._atualizar_historico()
+    pagina_inicio = app.paginas.get("Início")
+    if pagina_inicio:
+        pagina_inicio.resetar_execucao_ui()
+        pagina_inicio.ao_exibir()
+
+    if resultado["falhas"]:
+        messagebox.showwarning(
+            "Painel zerado com pendências",
+            f"Alguns arquivos não puderam ser apagados ({resultado['falhas']}). "
+            "Feche o Excel ou outros programas usando esses arquivos e clique em Zerar painel de novo.",
+        )
+    else:
+        messagebox.showinfo("Painel zerado", "Tudo limpo. Pode começar a próxima execução.")

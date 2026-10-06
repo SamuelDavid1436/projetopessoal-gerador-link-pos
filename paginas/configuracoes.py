@@ -28,8 +28,12 @@ class PaginaConfiguracoes(ctk.CTkFrame):
             font=(estilo.FONTE_PADRAO, estilo.FONTE_TEXTO_TAMANHO), text_color=estilo.TEXTO_SECUNDARIO,
         ).pack(anchor="w", pady=(2, 20))
 
+        # conteúdo com rolagem: as seções não ficam cortadas em telas menores
+        self.conteudo = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.conteudo.pack(fill="both", expand=True)
+
         # ---- Tema ----
-        painel_tema = ctk.CTkFrame(self, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
+        painel_tema = ctk.CTkFrame(self.conteudo, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
         painel_tema.pack(fill="x", pady=(0, 16))
         ctk.CTkLabel(
             painel_tema, text="◐  Tema", font=(estilo.FONTE_PADRAO, estilo.FONTE_TEXTO_TAMANHO, "bold"),
@@ -46,7 +50,7 @@ class PaginaConfiguracoes(ctk.CTkFrame):
         self.seletor_tema.pack(anchor="w", padx=20, pady=(0, 20))
 
         # ---- Pastas e arquivos ----
-        painel_pastas = ctk.CTkFrame(self, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
+        painel_pastas = ctk.CTkFrame(self.conteudo, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
         painel_pastas.pack(fill="x", pady=(0, 16))
         ctk.CTkLabel(
             painel_pastas, text="📁  Pastas e arquivos", font=(estilo.FONTE_PADRAO, estilo.FONTE_TEXTO_TAMANHO, "bold"),
@@ -69,8 +73,8 @@ class PaginaConfiguracoes(ctk.CTkFrame):
         ).pack(side="left", padx=8)
 
         # ---- Estatísticas do painel ----
-        painel_stats = ctk.CTkFrame(self, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
-        painel_stats.pack(fill="x")
+        painel_stats = ctk.CTkFrame(self.conteudo, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
+        painel_stats.pack(fill="x", pady=(0, 16))
         ctk.CTkLabel(
             painel_stats, text="▤  Estatísticas do painel", font=(estilo.FONTE_PADRAO, estilo.FONTE_TEXTO_TAMANHO, "bold"),
             text_color=estilo.TEXTO_PRIMARIO,
@@ -103,6 +107,35 @@ class PaginaConfiguracoes(ctk.CTkFrame):
             hover_color=estilo.BORDA, text_color=estilo.TEXTO_PRIMARIO, command=self._zerar_estatisticas,
         ).pack(anchor="w", padx=20, pady=(0, 20))
 
+        # ---- Zerar painel (novo polo) ----
+        painel_zerar = ctk.CTkFrame(self.conteudo, fg_color=estilo.FUNDO_CARTAO, corner_radius=estilo.RAIO_CARTAO)
+        painel_zerar.pack(fill="x")
+        ctk.CTkLabel(
+            painel_zerar, text="🧹  Zerar painel (começar outro polo)",
+            font=(estilo.FONTE_PADRAO, estilo.FONTE_TEXTO_TAMANHO, "bold"), text_color=estilo.TEXTO_PRIMARIO,
+        ).pack(anchor="w", padx=20, pady=(16, 8))
+        ctk.CTkLabel(
+            painel_zerar,
+            text=(
+                "Deixa o programa como novo antes da próxima execução: apaga os números do painel, o histórico "
+                "de execuções, TODAS as pastas de saída (resultado, base_disparo, resultado_detalhado, "
+                "reprocessar_erros) e as imagens de erro. Perfis e logins salvos NÃO são apagados.\n"
+                "Copie os arquivos do polo anterior antes de zerar."
+            ),
+            font=(estilo.FONTE_PADRAO, estilo.FONTE_PEQUENA_TAMANHO), text_color=estilo.TEXTO_SECUNDARIO,
+            wraplength=1000, justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+        botoes_zerar = ctk.CTkFrame(painel_zerar, fg_color="transparent")
+        botoes_zerar.pack(anchor="w", padx=20, pady=(0, 20))
+        ctk.CTkButton(
+            botoes_zerar, text="📂 Abrir pasta Saída", fg_color=estilo.FUNDO_SECUNDARIO, hover_color=estilo.BORDA,
+            text_color=estilo.TEXTO_PRIMARIO, command=lambda: self._abrir_pasta(config.DIR_SAIDA),
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            botoes_zerar, text="↻  Zerar painel", fg_color=estilo.VERMELHO_ERRO, hover_color="#96281F",
+            command=self._zerar_painel,
+        ).pack(side="left")
+
     # ------------------------------------------------------------------
     def _mudar_tema(self, valor):
         # O tema claro + azul marinho é o padrão do app (estilo.py). As
@@ -127,6 +160,10 @@ class PaginaConfiguracoes(ctk.CTkFrame):
                     os.remove(os.path.join(pasta, nome))
                 except OSError:
                     pass
+
+    def _zerar_painel(self):
+        import limpeza
+        limpeza.zerar_painel_com_confirmacao(self.app)
 
     def _zerar_estatisticas(self):
         self.app.estatisticas.zerar()
