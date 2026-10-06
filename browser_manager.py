@@ -21,7 +21,11 @@ import threading
 import time
 from typing import Optional, Dict
 
-from selenium import webdriver
+# Import direto da classe do Chrome: o `selenium.webdriver` das versões
+# novas carrega os navegadores de forma "preguiçosa", e o PyInstaller não
+# enxerga esse import — o .exe quebrava com "No module named
+# 'selenium.webdriver.chrome.webdriver'".
+from selenium.webdriver.chrome.webdriver import WebDriver as ChromeDriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -65,7 +69,7 @@ class NavegadorPerfil:
 
     def __init__(self, perfil: perfis_mod.Perfil):
         self.perfil = perfil
-        self.driver: Optional[webdriver.Chrome] = None
+        self.driver: Optional[ChromeDriver] = None
 
     def abrir(self, headless: bool = False):
         opcoes = Options()
@@ -79,7 +83,7 @@ class NavegadorPerfil:
         if headless:
             opcoes.add_argument("--headless=new")
 
-        self.driver = webdriver.Chrome(options=opcoes)
+        self.driver = ChromeDriver(options=opcoes)
         self.driver.set_page_load_timeout(config.TIMEOUT_LONGO)
         with _lock_registro:
             _navegadores_ativos[self.perfil.id] = self

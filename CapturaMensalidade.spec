@@ -7,6 +7,7 @@ necessários para Selenium/pandas/PIL/customtkinter.
 
 import customtkinter
 import os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 caminho_ctk = os.path.dirname(customtkinter.__file__)
 
@@ -19,8 +20,13 @@ a = Analysis(
     datas=[
         (caminho_ctk, 'customtkinter'),
         ('assets', 'assets'),
+        # inclui o selenium-manager.exe (baixa/acha o ChromeDriver sozinho)
+        *collect_data_files('selenium'),
     ],
     hiddenimports=[
+        # o selenium novo importa os navegadores sob demanda; sem isto o
+        # PyInstaller deixa módulos de fora do .exe
+        *collect_submodules('selenium'),
         'selenium',
         'selenium.webdriver',
         'selenium.webdriver.chrome.service',
